@@ -182,8 +182,84 @@ def _low_rank_decomposition(weight, reduced_rank=32):
     return {"L": L, "R": R, "U": U, "S": S, "Vh": Vh, "reduced_rank": reduced_rank}
 
 
+# @torch.no_grad()
+# def loftq_init(
+#         weight: Union[torch.Tensor, torch.nn.Parameter],
+#         num_bits: int,
+#         reduced_rank: int,
+#         num_iter=1,
+# ):
+#     if num_bits not in [2, 4, 8]:
+#         raise ValueError("Only support 2, 4, 8 bits quantization")
+#     if num_iter <= 0:
+#         raise ValueError("Number of iterations must be greater than 0")
+#
+#     out_feature, in_feature = weight.size()
+#     device = weight.device
+#     dtype = weight.dtype
+#
+#     logging.info(
+#         f"Weight: ({out_feature}, {in_feature}) | Rank: {reduced_rank} "
+#         f"| Num Iter: {num_iter} | Num Bits: {num_bits}"
+#     )
+#     if not is_bnb_4bit_available() or num_bits in [2, 8]:
+#         quantizer = NFQuantizer(num_bits=num_bits, device=device, method="normal", block_size=64)
+#         compute_device = device
+#     else:
+#         compute_device = "cuda"
+#
+#     weight = weight.to(device=compute_device, dtype=torch.float32)
+#     res = weight.clone()
+#     for i in range(num_iter):
+#         torch.cuda.empty_cache()
+#         # Quantization
+#         if num_bits == 4 and is_bnb_4bit_available():
+#             qweight = bnb.nn.Params4bit(
+#                 res.to("cpu"), requires_grad=False, compress_statistics=False, quant_type="nf4"
+#             ).to(compute_device)
+#             dequantized_weight = bnb.functional.dequantize_4bit(qweight.data, qweight.quant_state)
+#         else:
+#             quantized_weight, max_abs, shape = quantizer.quantize_block(res)
+#             dequantized_weight = quantizer.dequantize_block(quantized_weight, max_abs, shape)
+#
+#         res = weight - dequantized_weight
+#
+#         # Decompose the residual by SVD
+#         output = _low_rank_decomposition(res, reduced_rank=reduced_rank)
+#         L, R, reduced_rank = output["L"], output["R"], output["reduced_rank"]
+#         res = weight - torch.mm(L, R)
+#
+#     lora_A, lora_B = R, L
+#
+#     return dequantized_weight.to(device=device, dtype=dtype), lora_A, lora_B
+
+
+def adaptive_quant(w, w1, w2, block_size=0):
+    H, W = w.shape
+    if not block_size > 0:
+        block_size = W
+    w = w.reshape(-1, block_size)
+    w1 = w1.reshape(-1, block_size)
+    w2 = w2.reshape(-1, block_size)
+
+    for i in range(len(w)):
+        error_1 = torch.dist(w[i], w1[i], p=2)
+        error_2 = torch.dist(w[i], w2[i], p=2)
+        if error_1 > error_2:
+            w1[i] = w2[i]
+
+    w1 = w1.reshape(H, W)
+
+    return w1
+
+
 @torch.no_grad()
-def loftq_init(weight: Union[torch.Tensor, torch.nn.Parameter], num_bits: int, reduced_rank: int, num_iter=1):
+def loftq_init(
+    weight: Union[torch.Tensor, torch.nn.Parameter],
+    num_bits: int,
+    reduced_rank: int,
+    num_iter=1,
+):
     if num_bits not in [2, 4, 8]:
         raise ValueError("Only support 2, 4, 8 bits quantization")
     if num_iter <= 0:
@@ -203,19 +279,28 @@ def loftq_init(weight: Union[torch.Tensor, torch.nn.Parameter], num_bits: int, r
     else:
         compute_device = "cuda"
 
+    quantizer_uni = NFQuantizer(num_bits=num_bits, device=device, method="uniform", block_size=64)
+
     weight = weight.to(device=compute_device, dtype=torch.float32)
     res = weight.clone()
     for i in range(num_iter):
         torch.cuda.empty_cache()
-        # Quantization
+        # Quantization for NormalFloat
         if num_bits == 4 and is_bnb_4bit_available():
             qweight = bnb.nn.Params4bit(
                 res.to("cpu"), requires_grad=False, compress_statistics=False, quant_type="nf4"
             ).to(compute_device)
-            dequantized_weight = bnb.functional.dequantize_4bit(qweight.data, qweight.quant_state)
+            dequantized_weight_nf = bnb.functional.dequantize_4bit(qweight.data, qweight.quant_state)
         else:
             quantized_weight, max_abs, shape = quantizer.quantize_block(res)
-            dequantized_weight = quantizer.dequantize_block(quantized_weight, max_abs, shape)
+            dequantized_weight_nf = quantizer.dequantize_block(quantized_weight, max_abs, shape)
+
+        # Quantization for Uniform
+        quantized_weight_uni, max_abs_uni, shape_uni = quantizer_uni.quantize_block(res)
+        dequantized_weight_uni = quantizer_uni.dequantize_block(quantized_weight_uni, max_abs_uni, shape_uni)
+
+        # Choose the method with smaller errors
+        dequantized_weight = adaptive_quant(res, dequantized_weight_nf, dequantized_weight_uni)
 
         res = weight - dequantized_weight
 
