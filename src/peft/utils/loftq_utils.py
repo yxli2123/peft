@@ -242,11 +242,13 @@ def adaptive_quant(w, w1, w2, block_size=0):
     w1 = w1.reshape(-1, block_size)
     w2 = w2.reshape(-1, block_size)
 
+    print(10 * "=" + "Start to compare" + 10 * "=")
     for i in range(len(w)):
         error_1 = torch.dist(w[i], w1[i], p=2)
         error_2 = torch.dist(w[i], w2[i], p=2)
         if error_1 > error_2:
             w1[i] = w2[i]
+        print(f"{i} | {error_1} | {error_2}")
 
     w1 = w1.reshape(H, W)
 
@@ -300,7 +302,7 @@ def loftq_init(
         dequantized_weight_uni = quantizer_uni.dequantize_block(quantized_weight_uni, max_abs_uni, shape_uni)
 
         # Choose the method with smaller errors
-        dequantized_weight = adaptive_quant(res, dequantized_weight_nf, dequantized_weight_uni)
+        dequantized_weight = adaptive_quant(res, dequantized_weight_nf, dequantized_weight_uni, block_size=64)
 
         res = weight - dequantized_weight
 
