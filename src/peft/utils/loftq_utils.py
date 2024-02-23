@@ -242,13 +242,13 @@ def adaptive_quant(w, w1, w2, block_size=0):
     w1 = w1.reshape(-1, block_size)
     w2 = w2.reshape(-1, block_size)
 
-    print(10 * "=" + "Start to compare" + 10 * "=")
+    # print(10 * "=" + "Start to compare" + 10 * "=")
     for i in range(len(w)):
         error_1 = torch.dist(w[i], w1[i], p=2)
         error_2 = torch.dist(w[i], w2[i], p=2)
         if error_1 > error_2:
             w1[i] = w2[i]
-        print(f"{i} | {error_1} | {error_2}")
+        # print(f"{i} | {error_1} | {error_2}")
 
     w1 = w1.reshape(H, W)
 
