@@ -281,9 +281,9 @@ def loftq_init(
     else:
         compute_device = "cuda"
 
-    quantizer_uni = NFQuantizer(num_bits=num_bits, device=device, method="uniform", block_size=64)
+    quantizer_uni = NFQuantizer(num_bits=num_bits, device=compute_device, method="uniform", block_size=64)
 
-    weight = weight.to(device=device, dtype=torch.float32)
+    weight = weight.to(device=compute_device, dtype=torch.float32)
     res = weight.clone()
     for i in range(num_iter):
         torch.cuda.empty_cache()
