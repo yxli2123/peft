@@ -254,6 +254,12 @@ def adaptive_quant(w, w1, w2, block_size=0):
 
     return w1
 
+def adaptive_quant_mat(w, w1, w2):
+    error_1 = torch.dist(w, w1, p=2)
+    error_2 = torch.dist(w, w2, p=2)
+    if error_1 > error_2:
+        w1 = w2
+    return w1
 
 @torch.no_grad()
 def loftq_init(
@@ -302,7 +308,8 @@ def loftq_init(
         dequantized_weight_uni = quantizer_uni.dequantize_block(quantized_weight_uni, max_abs_uni, shape_uni)
 
         # Choose the method with smaller errors
-        dequantized_weight = adaptive_quant(res, dequantized_weight_nf, dequantized_weight_uni, block_size=64)
+        # dequantized_weight = adaptive_quant(res, dequantized_weight_nf, dequantized_weight_uni, block_size=64)
+        dequantized_weight = adaptive_quant_mat(res, dequantized_weight_nf, dequantized_weight_uni)
 
         res = weight - dequantized_weight
 
