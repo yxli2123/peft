@@ -207,6 +207,12 @@ def loftq_init(weight: Union[torch.Tensor, torch.nn.Parameter], num_bits: int, r
     res = weight.clone()
     for i in range(num_iter):
         torch.cuda.empty_cache()
+        
+        # Decompose the residual by SVD
+        output = _low_rank_decomposition(res, reduced_rank=reduced_rank)
+        L, R, reduced_rank = output["L"], output["R"], output["reduced_rank"]
+        res = weight - torch.mm(L, R)
+        
         # Quantization
         if num_bits == 4 and is_bnb_4bit_available():
             qweight = bnb.nn.Params4bit(
@@ -218,11 +224,7 @@ def loftq_init(weight: Union[torch.Tensor, torch.nn.Parameter], num_bits: int, r
             dequantized_weight = quantizer.dequantize_block(quantized_weight, max_abs, shape)
 
         res = weight - dequantized_weight
-
-        # Decompose the residual by SVD
-        output = _low_rank_decomposition(res, reduced_rank=reduced_rank)
-        L, R, reduced_rank = output["L"], output["R"], output["reduced_rank"]
-        res = weight - torch.mm(L, R)
+        
 
     lora_A, lora_B = R, L
 
